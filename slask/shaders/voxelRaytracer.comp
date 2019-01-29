@@ -1,0 +1,110 @@
+
+// http://antongerdelan.net/opengl/compute.html
+
+#version 430
+
+layout(local_size_x = 1, local_size_y = 1) in;
+layout(rgba32f, binding = 0) uniform image2D img_output; 
+
+uniform mat4 transform;
+uniform sampler3D sampler; 
+uniform int numSteps;
+uniform float alpha;
+
+vec4 project(mat4 transform, vec4 vec) {
+    vec4 vecProj = transform * vec;
+    return vecProj / vecProj.w;
+}
+
+float amin(float a, float b) {
+    if( a <= 0 ) {
+        return b;
+    }
+    if( b <= 0 ) {
+        return a;
+    }
+    return min(a,b);
+}
+float amax(float a, float b) {
+    if( a <= 0 ) {
+        return b;
+    }
+    if( b <= 0 ) {
+        return a;
+    }
+    return max(a,b);
+}
+
+void main() {
+  // base pixel colour for image
+  vec4 pixelValue = vec4(0);
+  // get index in global work group i.e x,y position
+  ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 dims = imageSize(img_output);
+
+  float x = float(pixelCoord.x * 2 - dims.x) / dims.x;
+  float y = float(pixelCoord.y * 2 - dims.y) / dims.y;
+  float baseZ = -1;
+  float dz = 2.0 / numSteps;
+  vec4 voxelValue;
+  vec4 voxelCoordView = vec4(x,y,baseZ,1);
+  vec4 voxelCoordViewNext = voxelCoordView + vec4(0,0,1,0);
+  vec4 voxelCoordLight = project(transform, voxelCoordView);
+  vec4 voxelCoordLightNext = project(transform, voxelCoordViewNext);
+  vec4 dir = normalize(voxelCoordLightNext - voxelCoordLight);
+  dir.w = 0;
+
+  const vec4 planes[6] = {
+      vec4(1,0,0,-1),
+      vec4(0,1,0,-1),
+      vec4(0,0,1,-1),
+      vec4(-1,0,0,-1),
+      vec4(0,-1,0,-1),
+      vec4(0,0,-1,-1)
+  };
+
+  float dist[6];
+  for(int i = 0; i < 6; ++i) {
+    dist[i] = - dot(voxelCoordLight, planes[i]) / dot(dir, planes[i]); 
+  }
+  float minDist = amin(dist[0], amin(dist[1], amin(dist[2], amin(dist[3], amin(dist[4], dist[5])))));
+  float maxDist = amax(dist[0], amax(dist[1], amax(dist[2], amax(dist[3], amax(dist[4], dist[5])))));
+
+  vec4 start = voxelCoordLight + minDist * dir;
+  maxDist = minDist + 2;
+  float stepSize = (maxDist - minDist) / numSteps;
+
+  vec3 voxelTexCoord;
+  for(int i = 0; i < numSteps; ++i) {
+    //voxelCoordView.z = baseZ + i * dz;
+    //voxelCoordLight = transform * voxelCoordView;
+    voxelCoordLight = start + stepSize * dir; 
+    voxelTexCoord = (vec3(voxelCoordLight / voxelCoordLight.w)+ 1)/2;
+    voxelValue = texture(sampler, voxelTexCoord); //imageLoad(sampler, voxelCoord);
+    pixelValue.rgb = pixelValue.rgb  + ( 1 - pixelValue.a ) * voxelValue.rgb;
+    pixelValue.a = pixelValue.a * ( 1 - voxelValue.a) + voxelValue.a;
+  }
+  
+  pixelValue.rgb /= 1000;
+  pixelValue.r = pow(pixelValue.r, 0.1);
+  pixelValue.g = pow(pixelValue.g, 0.1);
+  pixelValue.b = pow(pixelValue.b, 0.1);
+  pixelValue.a = 1;
+  imageStore(img_output, pixelCoord, pixelValue);
+
+  /*
+  if( maxDist < 0 ) {
+      imageStore(img_output, pixelCoord, vec4(1,0,0,1));
+  }
+  else {
+     imageStore(img_output, pixelCoord, vec4(vec3(maxDist),1));
+  }
+  
+  if( minDist < 0 ) {
+      imageStore(img_output, pixelCoord, vec4(1,0,0,1));
+  }
+  else {
+     imageStore(img_output, pixelCoord, vec4(vec3(minDist),1));
+  }
+  */
+}

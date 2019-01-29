@@ -1,0 +1,191 @@
+@vert {
+#version 420
+
+    in vec3 in_Position;
+    in vec3 in_Normal;
+    in vec2 in_TexCoord;
+
+    out vec3 tc_Position;
+    out vec3 tc_Normal;
+    out vec2 tc_TexCoord;
+
+    void main(void) {
+        tc_Position = in_Position;
+        tc_Normal = in_Normal;
+        tc_TexCoord = in_TexCoord;
+    }
+
+}
+
+@tesc {
+#version 420
+
+    layout(vertices = 3) out;
+    in vec3 tc_Position[];
+    in vec3 tc_Normal[];
+    in vec2 tc_TexCoord[];
+
+    out vec3 te_Position[];
+    out vec3 te_Normal[];
+    out vec2 te_TexCoord[];
+
+    uniform int tessLevel;
+    uniform int outerTessLevel;
+
+    void main()
+    {
+        te_Position[gl_InvocationID] = tc_Position[gl_InvocationID];
+        te_Normal[gl_InvocationID] = tc_Normal[gl_InvocationID];
+        te_TexCoord[gl_InvocationID] = tc_TexCoord[gl_InvocationID];
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelOuter[0] = max(outerTessLevel, 1);
+        gl_TessLevelOuter[1] = max(outerTessLevel, 1);
+        gl_TessLevelOuter[2] = max(outerTessLevel, 1);
+    }
+}
+
+@tese {
+#version 420
+
+    vec2 baryInterp2(vec2 v0, vec2 v1, vec2 v2) {
+        vec2 x = gl_TessCoord.x * v0;
+        vec2 y = gl_TessCoord.y * v1;
+        vec2 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    vec3 baryInterp3(vec3 v0, vec3 v1, vec3 v2) {
+        vec3 x = gl_TessCoord.x * v0;
+        vec3 y = gl_TessCoord.y * v1;
+        vec3 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    layout(triangles) in;
+    in vec3 te_Position[];
+    in vec3 te_Normal[];
+    in vec2 te_TexCoord[];
+
+    out vec3 g_Position;
+    out vec3 g_Normal;
+    out vec2 g_TexCoord;
+
+    void main() {
+        g_Position = baryInterp3(te_Position[0], te_Position[1], te_Position[2]);
+        g_Normal = baryInterp3(te_Normal[0], te_Normal[1], te_Normal[2]);
+        g_TexCoord = baryInterp2(te_TexCoord[0], te_TexCoord[1], te_TexCoord[2]);
+    }
+}
+
+@geom {
+#version 150
+#
+    bool inFrustum( vec3 pos ) {
+        bool x = -1 <= pos.x && pos.x <= 1;
+        bool y = -1 <= pos.y && pos.y <= 1;
+        bool z = -1 <= pos.z && pos.z <= 1;
+        return x && y && z;
+    }
+
+    layout(triangles) in;
+    layout(triangle_strip, max_vertices = 3) out;
+
+    in vec3 g_Position[];
+    in vec3 g_Normal[];
+    in vec2 g_TexCoord[];
+
+    out vec3 f_Normal;
+    out vec3 f_View;
+    out vec3 f_TexCoord;
+    out float f_Color;
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    uniform mat4 lightMatrix;
+    uniform sampler3D sampler;
+    uniform sampler2D tex;
+    uniform int numLayers;
+
+    void generateVertex(vec3 position, vec3 normal){
+        mat3 normalMatrix = mat3(modelViewMatrix);
+        mat4 M = projectionMatrix * modelViewMatrix;
+        vec4 light_Position;
+        vec3 density_TexCoord;
+
+        light_Position = lightMatrix * vec4(position,1);
+        light_Position /= light_Position.w;
+
+        f_TexCoord = (vec3(light_Position) + 1.0) / 2.0;
+        //f_TexCoord -= vec3(0.5 / numLayers);
+        //f_TexCoord.z = floor(numLayers * f_TexCoord.z) / numLayers;
+        f_Color = texture(sampler, f_TexCoord).r;
+        //f_Color.a = 1;
+        f_Normal = normalMatrix * normal;
+        f_View = vec3(modelViewMatrix * vec4(position,1));
+        //f_Color= 1;
+        if( ! inFrustum ( light_Position.xyz ) ) {
+            f_Color = 0; //vec4(0);
+        }
+        gl_Position = M * vec4(position, 1);
+        EmitVertex();
+    }
+
+    void main() {
+
+        vec4 material = texture(tex, g_TexCoord[2]);
+        mat3 normalMatrix = mat3(modelViewMatrix);
+        mat4 M = projectionMatrix * modelViewMatrix;
+
+        for(int i = 0; i < 3; ++i) {
+            generateVertex(g_Position[i], g_Normal[i]);
+        }
+        EndPrimitive();
+    }
+
+}
+
+@frag {
+#version 420
+
+    in vec3 f_Normal;
+    in vec3 f_View;
+    in vec3 f_TexCoord;
+    in float f_Color;
+
+    out vec4 out_Color;
+
+    uniform vec3 light;
+    uniform int numLayers;
+    uniform float shadeFactor;
+    uniform sampler3D sampler;
+
+    void main(void) {
+
+        const float ambient = 0;
+        const float diffuseFactor = 0.5;
+        const float specularFactor = 0.5;
+        const float specular_exp = 5;
+        float diffuse, specular, shade, shadeAlpha;
+
+        vec3 l = normalize(light);
+        vec3 n = normalize(f_Normal);
+        vec3 v = normalize(- f_View);
+
+        // Diffuse
+        diffuse = dot(n, l);
+        diffuse = max(0.0, diffuse); // No negative light
+
+        // Specular
+        specular = 0;
+        vec3 r = reflect(- l, n);
+        specular = max(dot(r, v), 0);
+        specular = max(specular, 0.0);
+        specular = pow(specular, specular_exp);
+
+        vec4 tex_Color = texture(sampler, f_TexCoord);
+        shade = pow(0.99, shadeFactor * tex_Color.r);
+        shade *= (ambient + diffuse + specular);
+        shadeAlpha = tex_Color.a;
+        out_Color = vec4(vec3(shade),1 );
+    }
+}

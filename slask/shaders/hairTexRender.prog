@@ -1,0 +1,103 @@
+@vert{
+	#version 150
+	in  vec3 inPosition;
+	in  vec3 inNormal;
+	in  vec2 inTexCoord;
+
+	out vec3 exNormal;
+	out vec2 exTexCoord;
+	void main(void)
+	{
+		exNormal = inNormal;
+		exTexCoord = inTexCoord;
+		gl_Position = vec4(inPosition, 1.0);
+	}
+}
+
+@geom{
+	#version 150
+
+	layout(triangles) in;
+	layout(line_strip, max_vertices = 33) out; //3 vertex + 3*amount of frags
+	in vec3 exNormal[3];
+	in vec2 exTexCoord[3];
+
+	uniform mat4 projectionMatrix;
+	uniform mat4 modelViewMatrix;
+	uniform sampler2D tex;
+	uniform vec3 forceCenter;
+
+	out vec4 f_color;
+
+	void main(void)
+	{
+		//f_color = vec4(vec3(texture2D(tex, exTexCoord[0]).r),1
+		vec4 material = texture(tex, exTexCoord[2]);
+		f_color = vec4(0,0,1,0);
+		mat4 M = projectionMatrix * modelViewMatrix;
+		int segments = 10;
+		float segLength = 0.05;
+		vec3 gravityForce = vec3(0,-0.5,0);
+
+		vec3 normal = mat3(modelViewMatrix) * exNormal[0];
+		float shade = dot(normalize(normal), vec3(0.58, 0.58, 0.58));
+
+		if (material.x > 0.2)
+		{ // Om röd
+			f_color = vec4(shade,shade,shade,0);
+			segments = 5;
+			segLength = 0.01;
+		} else if (material.y > 0.2)
+		{ // Om grön
+			f_color = shade*vec4(0.8,0.8,0,0);
+			segLength = 0.02;
+			gravityForce = vec3(0,-0.4,0);
+		} else if (material.z > 0.2 )
+		{ // Om blå
+			f_color = vec4(shade,shade,shade,0);
+			segments = 5;
+			segLength = 0.01;
+		}
+
+
+
+		for(int i = 0; i < 3; ++i)
+		{
+			vec4 segStartPos = gl_in[i].gl_Position;
+			vec3 currHairDirr = normalize(exNormal[i]);
+			vec3 force = vec3(0,0,0);
+
+			for(int n = 1; n < segments; ++n)
+			{
+
+				gl_Position = M * segStartPos; //+ vec4(-0.1, 0.0, 0.0, 0.0);
+				EmitVertex();
+
+				gl_Position = M * (segStartPos + segLength*vec4(currHairDirr,0));
+				EmitVertex();
+				segStartPos += segLength*vec4(currHairDirr,0);
+
+				force = normalize(vec3(segStartPos) - forceCenter);
+				float weight = exp(-1*distance(vec3(segStartPos),forceCenter));
+
+				currHairDirr = normalize(currHairDirr + gravityForce + weight*force);
+				EndPrimitive();
+			}
+		}
+	}
+}
+
+@frag{
+	#version 150
+
+	in vec4 f_color;
+
+	out vec4 outColor;
+	//in vec3 f_exNormal; // Phong
+	//in vec3 f_exSurface; // Phong (specular)
+
+	void main(void)
+	{
+		outColor = f_color;
+	}
+}

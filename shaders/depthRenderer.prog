@@ -1,0 +1,22 @@
+
+@vert {
+#version 150
+
+    in vec3 in_Position;
+
+    uniform mat4 transform;
+
+    void main() {
+        gl_Position = transform * vec4(in_Position,1);
+    }
+}
+
+@frag {
+#version 150    
+
+    out float out_Depth;
+
+    void main() {
+        out_Depth = gl_FragCoord.z;
+    }
+}

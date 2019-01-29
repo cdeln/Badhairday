@@ -1,0 +1,63 @@
+@vert {
+#version 430
+
+    in vec3 in_Position;
+
+    out vec3 f_Position;
+
+    uniform mat4 transform;
+
+    void main() {
+        gl_Position = transform * vec4(in_Position,1);
+        f_Position = gl_Position.xyz / gl_Position.w;
+    }
+
+} 
+
+
+@frag {
+#version 430
+
+    in vec3 f_Position;
+
+    layout(r32ui, binding = 0) uniform coherent uimage3D voxelGrid;
+    layout(r32ui, binding = 1) uniform coherent uimage3D lock;
+
+    void takeLock(ivec3 pos) {
+        uint locked; 
+        uint tries = 0u;
+        uint maxTries = 1000000u;
+        do {
+            locked = imageAtomicCompSwap(lock, pos, 0u, 1u);
+            tries += 1u;
+        } while( locked != 0u && tries < maxTries); 
+    }
+
+    void releaseLock(ivec3 pos) {
+        //imageStore(lock, pos, uvec4(0)); 
+        imageAtomicExchange(lock, pos, 0);
+    }
+
+    void main() {
+
+        ivec3 gridSize = imageSize(voxelGrid);
+        vec3 voxelPos = gridSize * (f_Position + 1)/2;
+        ivec3 voxelCoord = ivec3(floor(voxelPos)); 
+        //vec4 voxelValue = vec4(1);
+
+        // Funkar inte!?
+        /*
+        takeLock(voxelCoord);
+        vec4 col = imageLoad(voxelGrid, voxelCoord);
+        imageStore(voxelGrid, voxelCoord, voxelValue + col);
+        memoryBarrier();
+        releaseLock(voxelCoord);
+        memoryBarrier();
+        */
+                    
+        //imageStore(voxelGrid, voxelCoord, voxelValue);
+
+        imageAtomicAdd(voxelGrid, voxelCoord, 1u); 
+
+    }
+}

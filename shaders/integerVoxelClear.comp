@@ -1,0 +1,17 @@
+
+#version 430
+
+layout(local_size_x = 1, local_size_y = 1) in;
+layout(r32ui, binding = 0) uniform uimage3D voxelGrid; 
+
+void main() {
+
+  uvec4 clearColor = uvec4(0);
+  ivec3 dims = imageSize(voxelGrid);
+
+  ivec3 voxelCoord = ivec3(gl_GlobalInvocationID.xy, 0); 
+  for(int i = 0; i < dims.z; ++i) {
+    voxelCoord.z = i; 
+    imageStore(voxelGrid, voxelCoord, clearColor); 
+  }
+}

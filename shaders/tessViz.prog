@@ -1,0 +1,215 @@
+
+// http://ogldev.atspace.co.uk/www/tutorial31/tutorial31.html
+
+@vert {
+#version 420
+
+    in  vec3 in_Position;
+    in  vec3 in_Normal;
+
+    out vec3 tc_Position;
+    out vec3 tc_Normal;
+
+    void main(void) {
+        tc_Position = in_Position;
+        tc_Normal = in_Normal;
+
+    }
+
+}
+
+@tesc {
+#version 420
+
+    layout(vertices = 1) out;
+    in vec3 tc_Position[]; // From vertex shader
+    in vec3 tc_Normal[]; // From vertex shader
+
+    uniform int tessLevel;
+    uniform int outerTessLevel;
+
+    struct BezierPatch {
+        vec3 v300;
+        vec3 v210;
+        vec3 v120;
+        vec3 v030;
+        vec3 v021;
+        vec3 v012;
+        vec3 v003;
+        vec3 v102;
+        vec3 v201;
+        vec3 v111;
+
+        vec3 n200;
+        vec3 n020;
+        vec3 n002;
+
+        vec3 n110;
+        vec3 n011;
+        vec3 n101;
+    };
+
+    out patch BezierPatch o;
+
+    vec3 project(vec3 point, vec3 origin, vec3 normal) {
+        vec3 direction = point - origin;
+        float projlen = dot(direction, normal);
+        vec3 residual = projlen * normal;
+        return point - residual;
+    }
+
+    void main() {
+
+        // Copy normals
+        o.n200 = tc_Normal[0];
+        o.n020 = tc_Normal[1];
+        o.n002 = tc_Normal[2];
+
+        // Copy original vertices
+        o.v300 = tc_Position[0];
+        o.v030 = tc_Position[1];
+        o.v003 = tc_Position[2];
+
+        // Calc edge vectors
+        vec3 e300 = o.v003 - o.v030;
+        vec3 e030 = o.v300 - o.v003;
+        vec3 e003 = o.v030 - o.v300;
+
+        o.n110 = normalize(reflect((o.n200 + o.n020)/2, e300));
+        o.n101 = normalize(reflect((o.n200 + o.n002)/2, e030));
+        o.n011 = normalize(reflect((o.n020 + o.n002)/2, e003));
+
+        // Calc midpoints on each edge
+        o.v210 = o.v300 + e003 / 3;
+        o.v120 = o.v300 + 2 * e003 / 3;
+
+        o.v021 = o.v030 + e300 / 3;
+        o.v012 = o.v030 + 2 * e300 / 3;
+
+        o.v102 = o.v003 + e030 / 3;
+        o.v201 = o.v003 + 2 * e030 / 3;
+
+        // Project onto planes
+        o.v210 = project(o.v210, o.v300, o.n200);
+        o.v120 = project(o.v120, o.v030, o.n020);
+
+        o.v021 = project(o.v021, o.v030, o.n020);
+        o.v012 = project(o.v012, o.v003, o.n002);
+
+        o.v102 = project(o.v102, o.v003, o.n002);
+        o.v201 = project(o.v201, o.v300, o.n200);
+
+        // Calc center point
+        vec3 c = ( o.v300 + o.v030 + o.v003 ) / 3;
+        o.v111 = (o.v210 + o.v120 + o.v021 + o.v012 + o.v102 + o.v201) / 6;
+        o.v111 += (o.v111 - c) / 2;
+
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelOuter[0] = max(outerTessLevel,1);
+        gl_TessLevelOuter[1] = max(outerTessLevel,1);
+        gl_TessLevelOuter[2] = max(outerTessLevel,1);
+    }
+}
+
+@tese{
+#version 420
+
+    layout(triangles) in;
+
+    struct BezierPatch {
+        vec3 v300;
+        vec3 v210;
+        vec3 v120;
+        vec3 v030;
+        vec3 v021;
+        vec3 v012;
+        vec3 v003;
+        vec3 v102;
+        vec3 v201;
+        vec3 v111;
+
+        vec3 n200;
+        vec3 n020;
+        vec3 n002;
+        vec3 n110;
+        vec3 n011;
+        vec3 n101;
+    };
+
+    in patch BezierPatch o;
+
+    out vec3 g_Position;
+    out vec3 g_Normal;
+    out vec3 g_Color;
+
+    void main() {
+
+        float u = gl_TessCoord.x;
+        float v = gl_TessCoord.y;
+        float w = gl_TessCoord.z;
+
+        float u2 = pow(u,2);
+        float v2 = pow(v,2);
+        float w2 = pow(w,2);
+
+        float u3 = pow(u,3);
+        float v3 = pow(v,3);
+        float w3 = pow(w,3);
+
+        g_Position =
+            u3 * o.v300 + v3 * o.v030 + w3 * o.v003
+            + 3 * u2 * v * o.v210 + 3 * u * v2 * o.v120
+            + 3 * v2 * w * o.v021 + 3 * v * w2 * o.v012
+            + 3 * w2 * u * o.v102 + 3 * w * u2 * o.v201
+            + 6 * u * v * w * o.v111;
+
+        g_Normal = u2 * o.n200 + v2 * o.n020 + w2 * o.n002
+          + u*v*o.n110 + v*w*o.n011 + u*w*o.n101;
+        g_Color = gl_TessCoord;
+    }
+}
+
+@geom {
+#version 420
+
+    layout(triangles) in;
+    layout(triangle_strip, max_vertices = 3) out;
+
+    in vec3 g_Position[];
+    in vec3 g_Normal[];
+    in vec3 g_Color[];
+
+    out vec3 f_Normal;
+    out vec3 f_Color;
+
+    uniform mat4 transform;
+
+    void main() {
+
+        vec3 midPos = vec3(0);
+        for(int i = 0; i < 3; ++i) {
+            midPos += g_Position[i];
+        }
+        midPos /= 3;
+
+        for(int i = 0; i < 3; ++i) {
+            f_Color = g_Color[i];
+            //gl_Position = transform * vec4(g_Position[i]*0.5 + midPos*0.5, 1);
+            gl_Position = transform * vec4(g_Position[i],1);
+            EmitVertex();
+        }
+        EndPrimitive();
+    }
+}
+
+@frag {
+#version 420
+
+    in vec3 f_Color;
+
+    out vec4 out_Color;
+
+    void main(void) {
+        out_Color = vec4(f_Color, 1);
+    }
+}

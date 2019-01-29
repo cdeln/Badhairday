@@ -1,0 +1,57 @@
+@vert {
+#version 150
+
+    in vec3 inPosition;
+    in vec2 inTexCoord;
+
+    out vec2 varTexCoord;
+
+    void main(void)
+    {
+        varTexCoord = inTexCoord;
+        gl_Position = vec4(inPosition, 1.0);
+    }
+}
+
+@geom {
+#version 150
+
+    layout(triangles) in;
+    layout(triangle_strip, max_vertices = 3) out;
+
+    in vec2 varTexCoord[3];
+
+    out vec2 f_TexCoord;
+
+    uniform int outputLayer;
+
+    void main() {
+
+        for(int i = 0; i < 3; ++i) {
+            gl_Position = gl_in[i].gl_Position;
+            f_TexCoord = varTexCoord[i];
+            gl_Layer = outputLayer; 
+            EmitVertex();
+        }
+        EndPrimitive();
+
+    }  
+}
+
+@frag {
+#version 150
+
+    in vec2 f_TexCoord;
+
+    out vec4 outColor;
+
+    uniform sampler3D sampler;
+    uniform int inputLayer;
+    uniform int numLayers;
+
+    void main(void)
+    {
+        float z = float(inputLayer) / float(numLayers);
+        outColor = texture(sampler, vec3(f_TexCoord, z)); 
+    }
+}

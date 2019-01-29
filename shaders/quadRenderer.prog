@@ -1,0 +1,29 @@
+
+@vert {
+#version 150
+
+    in vec3 in_Position;
+    in vec2 in_TexCoord;
+
+    out vec2 f_TexCoord;
+
+    void main() {
+
+        gl_Position = vec4(in_Position, 1);
+        f_TexCoord = in_TexCoord;
+    }
+}
+
+@frag {
+#version 150
+
+    in vec2 f_TexCoord;
+
+    out vec4 out_Color;
+
+    uniform sampler2D sampler;
+
+    void main() {
+        out_Color = texture(sampler, f_TexCoord);
+    }
+}

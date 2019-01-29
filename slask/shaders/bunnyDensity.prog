@@ -1,0 +1,165 @@
+@vert {
+#version 420
+
+    in vec3 in_Position;
+    out vec3 tc_Position;
+
+    void main(void) {
+        tc_Position = in_Position;
+    }
+}
+
+@tesc {
+#version 420
+
+    layout(vertices = 3) out;
+    in vec3 tc_Position[];
+    out vec3 te_Position[];
+
+    uniform int tessLevel;
+
+    void main()
+    {
+        te_Position[gl_InvocationID] = tc_Position[gl_InvocationID];
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelOuter[0] = 1;
+        gl_TessLevelOuter[1] = 1;
+        gl_TessLevelOuter[2] = 1;
+    }
+}
+
+@tese {
+#version 420
+
+    vec2 baryInterp2(vec2 v0, vec2 v1, vec2 v2) {
+        vec2 x = gl_TessCoord.x * v0;
+        vec2 y = gl_TessCoord.y * v1;
+        vec2 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    vec3 baryInterp3(vec3 v0, vec3 v1, vec3 v2) {
+        vec3 x = gl_TessCoord.x * v0;
+        vec3 y = gl_TessCoord.y * v1;
+        vec3 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    layout(triangles) in;
+    in vec3 te_Position[];
+
+    out vec3 g_Position;
+
+    void main() {
+        g_Position = baryInterp3(te_Position[0], te_Position[1], te_Position[2]);
+    }
+}
+
+@geom{
+#version 420
+    layout(triangles) in;
+    layout(points, max_vertices = 108) out; // 4*27
+    //layout(triangle_strip, max_vertices = 3) out;
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    uniform int numLayers;
+    uniform bool forwardInterpolate;
+
+    in vec3 g_Position[];
+
+    out vec4 f_Color;
+
+    int getLayer(vec3 position){
+        mat4 M = projectionMatrix * modelViewMatrix;
+        vec4 projMid = M * vec4(position,1);
+        projMid /= projMid.w;
+        return int(round(numLayers * (projMid.z + 1) / 2));
+    }
+
+    void genVertex(mat4 M, vec3 pos) {
+
+        vec4 clipPos = M * vec4(pos,1);
+        clipPos /= clipPos.w;
+        vec3 texPos = numLayers * (vec3(clipPos) + 1)/2;
+
+        if ( forwardInterpolate ) {
+            // Trilinear forward interpolation, num_vertices = 27
+            vec3 floorPos = floor( texPos ); 
+            vec3 curPos;
+            float fx,fy,fz;
+            for(int x = -1; x <= 1; ++x) {
+                for(int y = -1; y <= 1; ++y) {
+                    for(int z = -1; z <= 1; ++z) {
+                        curPos = floorPos + vec3(x,y,z); 
+                        curPos += vec3(0.5);
+                        fx = max(0, 1 - abs(curPos.x - texPos.x));
+                        fy = max(0, 1 - abs(curPos.y - texPos.y));
+                        fz = max(0, 1 - abs(curPos.z - texPos.z));
+                        gl_Position = vec4(2*(curPos/numLayers) - 1, 1);
+                        gl_Layer = int(floor(curPos.z)); 
+                        f_Color = vec4( fx * fy * fz);
+                        EmitVertex();
+                        EndPrimitive();
+                    }
+                }
+            }
+        }
+        else {
+            // Nearest neighbor forward interpolation, num_vertices = 1
+            gl_Position = clipPos;
+            gl_Layer = int(floor(texPos.z));
+            f_Color = vec4(1);
+            EmitVertex();
+            EndPrimitive();
+        }
+    }
+
+    void main(void){
+        mat4 M = projectionMatrix * modelViewMatrix;
+
+        vec3 midPos = vec3(0);
+        for(int i = 0; i < 3; ++i) {
+            midPos += g_Position[i];
+        }
+        midPos /= 3;
+
+        genVertex(M, g_Position[0]);
+        genVertex(M, g_Position[1]);
+        genVertex(M, g_Position[2]);
+        //genVertex(M, midPos); 
+        //genVertex(M, (midPos + g_Position[0])/2); 
+        //genVertex(M, (midPos + g_Position[1])/2); 
+        //genVertex(M, (midPos + g_Position[2])/2); 
+        //genVertex(M, (g_Position[0] + g_Position[1])/2);
+        //genVertex(M, (g_Position[0] + g_Position[2])/2);
+        //genVertex(M, (g_Position[1] + g_Position[2])/2);
+
+        /*
+           vec3 texPos;
+           for(int i = 0; i < 3 ; ++i) {
+           gl_Position = M * vec4(g_Position[i],1); 
+           gl_Position /= gl_Position.w;
+           texPos = numLayers * (gl_Position.xyz + 1)/2;
+           gl_Layer = int(floor(texPos.z));
+           f_Color = vec4(1);
+           EmitVertex();
+           }
+           EndPrimitive();
+         */
+
+    }
+
+}
+
+@frag {
+#version 420
+
+    in vec4 f_Color;
+
+    out vec4 out_Color;
+
+    void main(void) {
+        out_Color = f_Color;
+    }
+}

@@ -1,0 +1,93 @@
+@vert {
+#version 150
+
+    in vec3 in_Position;
+
+    out vec3 g_TexCoord;
+
+    uniform mat4 transform; // = cameraTransform * voxelTransform
+
+    void main() {
+        g_TexCoord = (in_Position + 1)/ 2;
+        gl_Position = transform * vec4(in_Position, 1); 
+    }
+
+} 
+
+@geom {
+#version 150
+
+    in vec3 g_TexCoord[];
+
+    out vec2 spriteTexCoord;
+    out vec3 f_TexCoord;
+
+    layout(points) in;
+    layout(triangle_strip, max_vertices = 6) out;
+
+    void main() {
+
+        const vec4 x = vec4(1,0,0,0);
+        const vec4 y = vec4(0,1,0,0);
+        const float extend = 0.1; 
+        
+        vec4 center = gl_in[0].gl_Position;
+
+        gl_Position = center + extend * (-x + -y);
+        spriteTexCoord = vec2(-1,-1);
+        f_TexCoord = g_TexCoord[0];
+        EmitVertex();
+
+        gl_Position = center + extend * (x - y); 
+        spriteTexCoord = vec2(1,-1);
+        f_TexCoord = g_TexCoord[0];
+        EmitVertex();
+
+        gl_Position = center + extend * (x + y);
+        spriteTexCoord = vec2(1,1);
+        f_TexCoord = g_TexCoord[0];
+        EmitVertex();
+
+        EndPrimitive();
+
+        gl_Position = center + extend * (-x + -y);
+        spriteTexCoord = vec2(-1,-1);
+        f_TexCoord = g_TexCoord[0];
+        EmitVertex();
+
+        gl_Position = center + extend * (x + y); 
+        spriteTexCoord = vec2(1,1);
+        f_TexCoord = g_TexCoord[0];
+        EmitVertex();
+
+        gl_Position = center + extend * (-x + y);
+        spriteTexCoord = vec2(-1,1);
+        f_TexCoord = g_TexCoord[0];
+        EmitVertex();
+
+        EndPrimitive();
+    }
+}
+
+@frag {
+#version 150
+
+    in vec3 f_TexCoord;
+    in vec2 spriteTexCoord;
+
+    out vec4 out_Color;
+
+    uniform sampler3D sampler;
+    uniform float colorGain;
+    uniform float alphaGain; 
+
+    void main() {
+        float spriteDist = length(spriteTexCoord);
+        float falloff = max(1 - spriteDist, 0); 
+        float val = texture(sampler, f_TexCoord).r; 
+        float alpha = falloff * val * alphaGain;  
+        float color = val * colorGain;
+        out_Color = vec4(color, 1 - color, 0, alpha); 
+        //out_Color = vec4(f_TexCoord,0.1);
+    }
+}

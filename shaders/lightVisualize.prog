@@ -1,0 +1,26 @@
+@vert {
+#version 150
+
+    in  vec3 in_Position;
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+
+    void main(void)
+    {
+        mat4 M = projectionMatrix * modelViewMatrix;
+        gl_Position = M * vec4(in_Position, 1.0); 
+    }
+
+}
+
+@frag {
+#version 150
+
+    out vec4 outColor;
+
+    void main(void)
+    {
+        outColor = vec4(1);
+    }
+}

@@ -1,0 +1,50 @@
+LightVisualize:
+    mixed: shaders/lightVisualize.prog
+Wireframe:
+    mixed: shaders/wireframe.prog
+VoxelRender:
+    mixed: shaders/voxelRender.prog
+TessViz:
+    mixed: shaders/tessViz.prog
+NormalViz:
+    mixed: shaders/normalViz.prog
+TessWireframe:
+    mixed: shaders/tessWireframe.prog
+Body:
+    mixed: shaders/body.prog
+MeshDensity:
+    mixed: shaders/meshDensity.prog
+VoxelClear:
+    comp: shaders/voxelClear.comp
+VoxelCumsum:
+    comp: shaders/voxelCumsum.comp
+IntegerVoxelizer:
+    mixed: shaders/integerVoxelizer.prog
+IntegerHairVoxelizer:
+    mixed: shaders/integerHairVoxelizer.prog
+IntegerVoxelCumsum:
+    comp: shaders/integerVoxelCumsum.comp
+IntegerVoxelClear:
+    comp: shaders/integerVoxelClear.comp
+IntegerHairTexLightRender:
+    mixed: shaders/integerHairTexLightRender.prog
+HairTessVoxelizer:
+    mixed: shaders/hairTessVoxelizer.prog
+HairTessRenderer:
+    mixed: shaders/hairTessRenderer.prog
+IntegerHairTessVoxelizer:
+    mixed: shaders/integerHairTessVoxelizer.prog
+IntegerHairTessRenderer:
+    mixed: shaders/integerHairTessRenderer.prog
+DepthRenderer:
+    mixed: shaders/depthRenderer.prog
+QuadRenderer:
+    mixed: shaders/quadRenderer.prog
+HairTessRendererOptimized:
+    mixed: shaders/hairTessRendererOptimized.prog
+HairTessVoxelizerOptimized:
+    mixed: shaders/hairTessVoxelizerOptimized.prog
+IntegerHairTessRendererOptimized:
+    mixed: shaders/integerHairTessRendererOptimized.prog
+IntegerHairTessVoxelizerOptimized:
+    mixed: shaders/integerHairTessVoxelizerOptimized.prog

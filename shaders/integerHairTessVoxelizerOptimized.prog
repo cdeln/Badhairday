@@ -1,0 +1,308 @@
+@vert {
+#version 430
+
+    in  vec3 in_Position;
+    in  vec3 in_Normal;
+    in  vec2 in_TexCoord;
+
+    out vec3 tc_Position;
+    out vec3 tc_Normal;
+    out vec2 tc_TexCoord;
+
+    void main() {
+        tc_Position = in_Position;
+        tc_Normal = in_Normal;
+        tc_TexCoord = in_TexCoord;
+    }
+}
+
+@tesc {
+#version 430
+
+    layout(vertices = 1) out;
+    in vec3 tc_Position[]; // From vertex shader
+    in vec3 tc_Normal[]; // From vertex shader
+    in vec2 tc_TexCoord[];
+
+    uniform int tessLevel;
+
+    struct BezierPatch {
+        vec3 v300;
+        vec3 v210;
+        vec3 v120;
+        vec3 v030;
+        vec3 v021;
+        vec3 v012;
+        vec3 v003;
+        vec3 v102;
+        vec3 v201;
+        vec3 v111;
+
+        vec3 n300;
+        vec3 n030;
+        vec3 n003;
+
+        vec2 t300;
+        vec2 t030;
+        vec2 t003;
+    };
+
+    out patch BezierPatch o; 
+
+    vec3 project(vec3 point, vec3 origin, vec3 normal) {
+        vec3 direction = point - origin; 
+        float projlen = dot(direction, normal);
+        vec3 residual = projlen * normal; 
+        return point - residual; 
+    }
+
+    void main() {
+
+        // Copy normals
+        o.n300 = tc_Normal[0];
+        o.n030 = tc_Normal[1];
+        o.n003 = tc_Normal[2];
+
+        // Copy tex coords
+        o.t300 = tc_TexCoord[0];
+        o.t030 = tc_TexCoord[0];
+        o.t003 = tc_TexCoord[0];
+
+        // Copy original vertices 
+        o.v300 = tc_Position[0];
+        o.v030 = tc_Position[1];
+        o.v003 = tc_Position[2];
+
+        // Calc edge vectors
+        vec3 e300 = o.v003 - o.v030;
+        vec3 e030 = o.v300 - o.v003;
+        vec3 e003 = o.v030 - o.v300;
+
+        // Calc midpoints on each edge
+        o.v210 = o.v300 + e003 / 3;
+        o.v120 = o.v300 + 2 * e003 / 3;
+
+        o.v021 = o.v030 + e300 / 3;
+        o.v012 = o.v030 + 2 * e300 / 3;
+
+        o.v102 = o.v003 + e030 / 3;
+        o.v201 = o.v003 + 2 * e030 / 3;
+
+        // Project onto planes
+        o.v210 = project(o.v210, o.v300, o.n300); 
+        o.v120 = project(o.v120, o.v030, o.n030); 
+
+        o.v021 = project(o.v021, o.v030, o.n030);
+        o.v012 = project(o.v012, o.v003, o.n003);
+
+        o.v102 = project(o.v102, o.v003, o.n003);
+        o.v201 = project(o.v201, o.v300, o.n300);
+
+        // Calc center point
+        vec3 c = ( o.v300 + o.v030 + o.v003 ) / 3;
+        o.v111 = (o.v210 + o.v120 + o.v021 + o.v012 + o.v102 + o.v201) / 6;
+        o.v111 += (o.v111 - c) / 2;
+
+        gl_TessLevelInner[0] = tessLevel; 
+        gl_TessLevelOuter[0] = 1; 
+        gl_TessLevelOuter[1] = 1; 
+        gl_TessLevelOuter[2] = 1; 
+    }
+}
+
+@tese{
+#version 430
+
+    layout(triangles) in;
+
+    struct BezierPatch { 
+        vec3 v300;
+        vec3 v210;
+        vec3 v120;
+        vec3 v030;
+        vec3 v021;
+        vec3 v012;
+        vec3 v003;
+        vec3 v102;
+        vec3 v201;
+        vec3 v111;
+
+        vec3 n300;
+        vec3 n030;
+        vec3 n003;
+
+        vec2 t300;
+        vec2 t030;
+        vec2 t003;
+    };
+
+    in patch BezierPatch o;
+
+    out vec3 g_Position;
+    out vec3 g_Normal;
+    out vec2 g_TexCoord;
+
+    void main() {
+
+        float u = gl_TessCoord.x;
+        float v = gl_TessCoord.y;
+        float w = gl_TessCoord.z; 
+
+        float u2 = pow(u,2);
+        float v2 = pow(v,2);
+        float w2 = pow(w,2);
+
+        float u3 = pow(u,3);
+        float v3 = pow(v,3);
+        float w3 = pow(w,3);
+
+        g_Position =
+            u3 * o.v300 + v3 * o.v030 + w3 * o.v003
+            + 3 * u2 * v * o.v210 + 3 * u * v2 * o.v120
+            + 3 * v2 * w * o.v021 + 3 * v * w2 * o.v012
+            + 3 * w2 * u * o.v102 + 3 * w * u2 * o.v201
+            + 6 * u * v * w * o.v111;
+
+        g_Normal = u * o.n300 + v * o.n030 + w * o.n003;
+        g_TexCoord = u * o.t300 + v * o.t030 + w * o.t003;
+    }
+}
+
+@geom {
+#version 430
+
+#define MAX_VERTICES 20
+
+    layout(triangles) in;
+    layout(line_strip, max_vertices = MAX_VERTICES) out;
+
+    in vec3 g_Position[];
+    in vec3 g_Normal[];
+    in vec2 g_TexCoord[];
+
+    out vec3 f_TexCoord;
+
+    uniform mat4 transform;
+    uniform sampler2D tex;
+    uniform vec3 forceCenter;
+
+    vec4 calcpos(vec3 pos, vec3 dir) {
+        vec3 adir = abs(dir);
+        if( adir.x < adir.y && adir.x < adir.z )  {
+            return vec4(pos.y, pos.z, 0, 1);
+        }
+        else if( adir.y < adir.x && adir.y < adir.z ) {
+            return vec4(pos.x, pos.z, 0, 1);
+        }
+        return vec4(pos.x, pos.y, 0, 1);
+    }
+
+    void genVertex(vec3 pos, vec3 dir) {
+        vec4 posProj = transform * vec4(pos,1);
+        posProj /= posProj.w;
+        gl_Position = calcpos(posProj.xyz, dir);
+        f_TexCoord = (posProj.xyz + 1)/2;
+        EmitVertex();
+    }
+
+    void main () {
+
+        vec4 material = texture(tex, g_TexCoord[2]);
+        int segments = 10;
+        float segLength = 0.05;
+        vec3 gravityForce = vec3(0,-1,0);
+
+        //Match colors with dot product. Alpha = 0 because it doesnt matter
+        const vec4 red = vec4(1,0,0,0);
+        const vec4 blue = vec4(0,0,1,0);
+        const vec4 green = vec4(0,1,0,0);
+        const vec4 white = vec4(1,1,1,0);
+        const vec4 black = vec4(0,0,0,0);
+
+        if (dot(material, red) > 0.5) {
+            segments = 5;
+            segLength = 0.03; //Head
+        }
+        else if (dot(material, blue) > 0.5) {
+            segLength = 0.06;
+            gravityForce = vec3(0,-0.4,0); //Chest, mane
+        }
+        else if (dot(material, green) > 0.5 ) {
+            segments = 5;
+            segLength = 0.03; //Body
+        }
+
+        if(dot(material, white) > 2) {
+            segLength = 0.04;
+            gravityForce = vec3(0,-0.2,0); // Fluffy tail
+        }
+        else if (dot(material, material) < 0.2) {
+            segments = 1;
+            segLength = 0.0; // eyes no hair
+        }
+
+        vec3 midPos = vec3(0);
+        vec3 midNormal =  vec3(0);
+        for(int i = 0; i < 3; ++i) {
+            midPos += g_Position[i];
+            midNormal += g_Normal[i];
+        }
+        midPos /= 3;
+        midNormal /= 3;
+
+        vec3 pos = midPos;
+        vec3 dir = normalize(midNormal);
+        for(int n = 0; n < segments; ++n) {
+
+            genVertex(pos, dir);
+            genVertex(pos + segLength * dir, dir);
+            EndPrimitive();
+
+            pos += segLength * dir; 
+            vec3 force = normalize(pos - forceCenter);
+            float weight = exp( - distance(pos, forceCenter));
+            dir = normalize(dir + gravityForce + weight*force);
+        }
+    }
+}
+
+@frag {
+#version 430
+
+    #define FLOAT_TO_INTEGER_FACTOR 1000
+    #define INTERPOLATE
+
+    in vec3 f_TexCoord;
+
+    layout(r32ui, binding = 0) uniform uimage3D voxelGrid;
+
+    void main() {
+
+        ivec3 gridSize = imageSize(voxelGrid);
+        vec3 voxelPos = gridSize * f_TexCoord; 
+        ivec3 voxelCoord = ivec3(floor(voxelPos));
+        uint voxelValue = FLOAT_TO_INTEGER_FACTOR;
+
+        #ifdef INTERPOLATE
+            vec3 texPos = f_TexCoord * gridSize; 
+            vec3 floorPos = floor( texPos ); 
+            vec3 curPos;
+            float fx;
+            float fy;
+            float fz;
+            for(int x = -1; x <= 1; ++x) {
+                for(int y = -1; y <= 1; ++y) {
+                    for(int z = -1; z <= 1; ++z) {
+                        curPos = floorPos + vec3(x,y,z) + vec3(0.5); // middle of pixel 
+                        fx = max(0, 1 - abs(curPos.x - texPos.x));
+                        fy = max(0, 1 - abs(curPos.y - texPos.y));
+                        fz = max(0, 1 - abs(curPos.z - texPos.z));
+                        imageAtomicAdd(voxelGrid, ivec3(floor(curPos)), uint(round( fx * fy * fz * voxelValue)));
+                    }
+                }
+            }
+        #else
+            imageAtomicAdd(voxelGrid, voxelCoord, voxelValue);
+        #endif
+    }
+}

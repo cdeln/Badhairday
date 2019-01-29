@@ -1,0 +1,131 @@
+@vert {
+#version 420
+
+    in vec3 in_Position;
+    in vec3 in_Normal;
+    in vec2 in_TexCoord;
+
+    out vec3 tc_Position;
+    out vec3 tc_Normal;
+    out vec2 tc_TexCoord;
+
+    void main(void) {
+        tc_Position = in_Position;
+        tc_Normal = in_Normal;
+        tc_TexCoord = in_TexCoord;
+    }
+
+}
+
+@tesc {
+#version 420
+
+    layout(vertices = 3) out;
+    in vec3 tc_Position[];
+    in vec3 tc_Normal[];
+    in vec2 tc_TexCoord[];
+
+    out vec3 te_Position[];
+    out vec3 te_Normal[];
+    out vec2 te_TexCoord[];
+
+    uniform int tessLevel;
+    uniform int outerTessLevel;
+
+    void main()
+    {
+        te_Position[gl_InvocationID] = tc_Position[gl_InvocationID];
+        te_Normal[gl_InvocationID] = tc_Normal[gl_InvocationID];
+        te_TexCoord[gl_InvocationID] = tc_TexCoord[gl_InvocationID];
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelOuter[0] = min(outerTessLevel,1);
+        gl_TessLevelOuter[1] = min(outerTessLevel,1);
+        gl_TessLevelOuter[2] = min(outerTessLevel,1);
+    }
+}
+
+@tese {
+#version 420
+
+    vec2 baryInterp2(vec2 v0, vec2 v1, vec2 v2) {
+        vec2 x = gl_TessCoord.x * v0;
+        vec2 y = gl_TessCoord.y * v1;
+        vec2 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    vec3 baryInterp3(vec3 v0, vec3 v1, vec3 v2) {
+        vec3 x = gl_TessCoord.x * v0;
+        vec3 y = gl_TessCoord.y * v1;
+        vec3 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    layout(triangles) in;
+    in vec3 te_Position[];
+    in vec3 te_Normal[];
+    in vec2 te_TexCoord[];
+
+    out vec3 g_Position;
+    out vec3 g_Normal;
+    out vec2 g_TexCoord;
+
+    void main() {
+        g_Position = baryInterp3(te_Position[0], te_Position[1], te_Position[2]);
+        g_Normal = baryInterp3(te_Normal[0], te_Normal[1], te_Normal[2]);
+        g_TexCoord = baryInterp2(te_TexCoord[0], te_TexCoord[1], te_TexCoord[2]);
+    }
+}
+
+@geom {
+#version 150
+#
+    bool inFrustum( vec3 pos ) {
+        bool x = -1 <= pos.x && pos.x <= 1;
+        bool y = -1 <= pos.y && pos.y <= 1;
+        bool z = -1 <= pos.z && pos.z <= 1;
+        return x && y && z;
+    }
+
+    layout(triangles) in;
+    layout(triangle_strip, max_vertices = 3) out;
+
+    in vec3 g_Position[];
+    in vec3 g_Normal[];
+    in vec2 g_TexCoord[];
+
+    out float f_Density;
+
+    uniform mat4 transform;
+
+    void main() {
+
+        float dxy = distance(g_Position[0], g_Position[1]);
+        float dxz = distance(g_Position[0], g_Position[2]);
+        float dyz = distance(g_Position[1], g_Position[2]);
+
+        float minDist;
+        for(int i = 0; i < 3; ++i) {
+            gl_Position = transform * vec4(g_Position[i], 1);
+            minDist  = min(dxy,min(dxz,dyz));
+            f_Density = 1.0 / minDist;
+            EmitVertex();
+        }
+
+        EndPrimitive();
+    }
+
+}
+
+@frag {
+#version 420
+
+    in float f_Density;
+
+    out vec4 out_Color;
+
+    void main(void) {
+
+        out_Color = vec4(0.01*vec3(f_Density), 1);
+    }
+}

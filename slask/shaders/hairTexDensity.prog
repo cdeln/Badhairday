@@ -1,0 +1,266 @@
+@vert {
+#version 420
+
+    in  vec3 inPosition;
+    in  vec3 inNormal;
+    in  vec2 inTexCoord;
+
+    out vec3 tc_Position;
+    out vec3 tc_Normal;
+    out vec2 tc_TexCoord;
+
+    void main(void) {
+        tc_Position = inPosition;
+        tc_Normal = inNormal;
+        tc_TexCoord = inTexCoord;
+    }
+}
+
+@tesc {
+#version 420
+
+    layout(vertices = 3) out;
+    in vec3 tc_Position[];
+    in vec3 tc_Normal[];
+    in vec2 tc_TexCoord[];
+
+    out vec3 te_Position[];
+    out vec3 te_Normal[];
+    out vec2 te_TexCoord[];
+
+    uniform int tessLevel;
+
+    void main()
+    {
+        te_Position[gl_InvocationID] = tc_Position[gl_InvocationID];
+        te_Normal[gl_InvocationID] = tc_Normal[gl_InvocationID];
+        te_TexCoord[gl_InvocationID] = tc_TexCoord[gl_InvocationID];
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelOuter[0] = 1;
+        gl_TessLevelOuter[1] = 1;
+        gl_TessLevelOuter[2] = 1;
+    }
+}
+
+@tese {
+#version 420
+
+    vec2 baryInterp2(vec2 v0, vec2 v1, vec2 v2) {
+        vec2 x = gl_TessCoord.x * v0;
+        vec2 y = gl_TessCoord.y * v1;
+        vec2 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    vec3 baryInterp3(vec3 v0, vec3 v1, vec3 v2) {
+        vec3 x = gl_TessCoord.x * v0;
+        vec3 y = gl_TessCoord.y * v1;
+        vec3 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    layout(triangles) in;
+    in vec3 te_Position[];
+    in vec3 te_Normal[];
+    in vec2 te_TexCoord[];
+
+    out vec3 g_Position;
+    out vec3 g_Normal;
+    out vec2 g_TexCoord;
+
+    void main() {
+        g_Position = baryInterp3(te_Position[0], te_Position[1], te_Position[2]);
+        g_Normal = baryInterp3(te_Normal[0], te_Normal[1], te_Normal[2]);
+        g_TexCoord = baryInterp2(te_TexCoord[0], te_TexCoord[1], te_TexCoord[2]);
+    }
+}
+
+
+@geom {
+#version 420
+
+    layout(triangles) in;
+    layout(points, max_vertices = 90) out; // numRoot * numSegment * numInterpol = 3 * 10 * 3
+
+    in vec3 g_Position[];
+    in vec3 g_Normal[];
+    in vec2 g_TexCoord[];
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    uniform int numLayers;
+    uniform float hairLength;
+    uniform sampler2D tex;
+    uniform vec3 forceCenter;
+    uniform bool doFloor; 
+    uniform bool forwardInterpolate;
+
+    out vec4 f_Color;
+
+    /*
+       int getLayer(vec3 position){
+       mat4 M = projectionMatrix * modelViewMatrix;
+       vec4 projMid = M * vec4(position,1);
+       projMid /= projMid.w;
+       if( doFloor ) {
+       return int(floor(numLayers * (projMid.z + 1) / 2));
+       }
+       else {
+       return int(round(numLayers * (projMid.z + 1) / 2));
+       }
+       }
+     */
+
+    int getLayer(vec3 pos) {
+        if( doFloor ) {
+            return int(floor(pos.z));
+        }
+        else {
+            return int(round(pos.z));
+        }
+    }
+
+    void genVertices(mat4 transform, vec3 pos) {
+        vec4 clipPos = transform * vec4(pos,1);
+        clipPos /= clipPos.w;
+        vec3 texPos = numLayers * (vec3(clipPos) + 1) / 2;
+        vec3 floorPos = floor(texPos);
+        vec3 curPos;
+        float factor;
+        if( forwardInterpolate ) {
+            for(int i = -1; i <= 1; ++i) {
+                curPos = floorPos + vec3(0,0,i + 0.5);
+                factor = max(0, 1 - abs(curPos.z - texPos.z));
+                gl_Position = vec4( 2 * (curPos/numLayers) - 1, 1);
+                gl_Layer = getLayer(curPos);
+                f_Color = vec4( factor );
+                EmitVertex();
+                EndPrimitive();
+            }
+        }
+        else {
+            gl_Position = clipPos;
+            gl_Layer = getLayer( texPos );
+            f_Color = vec4(1);
+            EmitVertex();
+            EndPrimitive();
+        }
+    }
+
+    vec4 proj(mat4 transform, vec3 pos) {
+        vec4 p = transform * vec4(pos,1);
+        return p / p.w;
+    }
+
+    vec3 clipToTex(vec4 clip) {
+        return numLayers * (vec3(clip) + 1)/2;
+    }
+
+    void drawLine(vec4 start, vec4 end, int layer, float shade) {
+        gl_Position = start; 
+        gl_Layer = layer;
+        f_Color = vec4(shade);
+        EmitVertex();
+        gl_Position = end;
+        gl_Layer = layer;
+        f_Color = vec4(shade);
+        EmitVertex();
+        EndPrimitive();
+    }
+
+    void genLine(mat4 transform, vec3 start, vec3 dir) {
+        vec4 v1 = proj(transform, start); 
+        vec3 t1 = clipToTex(v1);
+        vec4 v2 = proj(transform, start + dir);
+        vec3 t2 = clipToTex(v2); 
+        int l1 = getLayer( t1 );
+        int l2 = getLayer( t2 );
+
+        gl_Position = v1;
+        gl_Layer = l1; 
+        f_Color = vec4(1);
+        EmitVertex();
+        gl_Position = v2;
+        gl_Layer = l1;
+        f_Color = vec4(1);
+        EmitVertex();
+        EndPrimitive();
+
+        gl_Position = v1;
+        gl_Layer = l2; 
+        f_Color = vec4(1);
+        EmitVertex();
+        gl_Position = v2;
+        gl_Layer = l2;
+        f_Color = vec4(1);
+        EmitVertex();
+        EndPrimitive();
+    }
+
+    void main() {
+        vec4 material = texture(tex, g_TexCoord[2]);
+        mat3 normalMatrix = mat3(modelViewMatrix);
+        mat4 M = projectionMatrix * modelViewMatrix;
+        //int segments = 10;
+        //float segLength = 0.05;
+        int segments = 10;
+        float segLength = 0.05;
+        vec3 gravityForce = vec3(0,0,0);
+
+        /*
+           if (material.r > 0.2) {
+           segments = 5;
+           segLength = 0.03;
+           }
+           else if (material.g > 0.2) {
+           segLength = 0.06;
+           gravityForce = vec3(0,-0.4,0);
+           }
+           else if (material.b > 0.2 ) {
+           segments = 5;
+           segLength = 0.03;
+           }
+         */
+
+        vec3 midPos = vec3(0); 
+        vec3 midNormal =  vec3(0);
+        for(int i = 0; i < 3; ++i) {
+            midPos += g_Position[i];
+            midNormal += g_Normal[i];
+        }
+        midPos /= 3;
+        midNormal /= 3;
+
+        vec3 hairRoot = midPos; //(midPos + g_Position[i])/2;
+        vec3 segStartPos = hairRoot;
+        vec3 currHairDirr = normalize(midNormal);
+        vec3 force = vec3(0,0,0);
+        int layer = getLayer(segStartPos);
+
+        for(int n = 0; n < segments; ++n) {
+
+            genVertices(M, segStartPos);
+            //genLine(M, segStartPos, currHairDirr);
+
+            segStartPos += segLength * currHairDirr;
+
+            /*
+            force = normalize(segStartPos - forceCenter);
+            float weight = exp(- distance(segStartPos, forceCenter));
+            currHairDirr = normalize(currHairDirr + gravityForce + weight*force);
+            */
+        }
+    }
+
+}
+
+@frag {
+#version 420
+
+    in vec4 f_Color;
+    out vec4 out_Color;
+
+    void main(void) {
+        out_Color = f_Color;
+    }
+}

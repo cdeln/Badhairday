@@ -1,0 +1,80 @@
+@vert {
+#version 150
+
+    in  vec3 in_Position;
+    in  vec3 in_Normal;
+
+    out vec3 g_Normal;
+
+    void main(void)
+    {
+        g_Normal = in_Normal;
+        gl_Position = vec4(in_Position, 1.0);
+    }
+
+}
+
+@geom {
+#version 150
+
+    layout(triangles) in;
+    layout(line_strip, max_vertices = 2) out;
+
+    in vec3 g_Normal[3];
+
+    out vec4 f_Color;
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    uniform int numLayers;
+    uniform float hairLength;
+
+    void main() {
+
+        mat3 normalMatrix = mat3(modelViewMatrix);
+        mat4 M = projectionMatrix * modelViewMatrix;
+
+        vec3 mid_Position = vec3(0);
+        vec3 mid_Normal = vec3(0);
+        for(int i = 0; i < 3; ++i) {
+            mid_Position += gl_in[i].gl_Position.xyz;
+            mid_Normal += g_Normal[i];
+        }
+        mid_Position /= 3;
+        mid_Normal = normalize(mid_Normal);
+
+        vec4 projMid = M * vec4(mid_Position,1);
+        projMid /= projMid.w;
+        int layer = int(round(numLayers * (projMid.z + 1) / 2));
+
+        // hair root
+        gl_Position = M * vec4(mid_Position,1);
+        gl_Position /= gl_Position.w;
+        gl_Layer = layer; //int(round(numLayers * (gl_Position.z + 1) / 2));
+        f_Color = vec4(10);
+        EmitVertex();
+
+        // hair top
+        gl_Position = M * vec4(mid_Position + hairLength * mid_Normal, 1);
+        gl_Position /= gl_Position.w;
+        gl_Layer = layer; //int(round(numLayers * (gl_Position.z + 1) / 2));
+        f_Color = vec4(1);
+        EmitVertex();
+
+        EndPrimitive();
+
+    }
+
+}
+
+@frag {
+#version 150
+
+    in vec4 f_Color;
+
+    out vec4 out_Color;
+
+    void main(void) {
+        out_Color = f_Color;
+    }
+}

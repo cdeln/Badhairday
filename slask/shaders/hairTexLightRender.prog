@@ -1,0 +1,260 @@
+@vert {
+#version 420
+
+    in vec3 in_Position;
+    in vec3 in_Normal;
+    in vec2 in_TexCoord;
+
+    out vec3 tc_Position;
+    out vec3 tc_Normal;
+    out vec2 tc_TexCoord;
+
+    void main(void) {
+        tc_Position = in_Position;
+        tc_Normal = in_Normal;
+        tc_TexCoord = in_TexCoord;
+    }
+}
+
+@tesc {
+#version 420
+
+    layout(vertices = 3) out;
+    in vec3 tc_Position[];
+    in vec3 tc_Normal[];
+    in vec2 tc_TexCoord[];
+
+    out vec3 te_Position[];
+    out vec3 te_Normal[];
+    out vec2 te_TexCoord[];
+
+    uniform int tessLevel;
+
+    void main()
+    {
+        te_Position[gl_InvocationID] = tc_Position[gl_InvocationID];
+        te_Normal[gl_InvocationID] = tc_Normal[gl_InvocationID];
+        te_TexCoord[gl_InvocationID] = tc_TexCoord[gl_InvocationID];
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelOuter[0] = 1;
+        gl_TessLevelOuter[1] = 1;
+        gl_TessLevelOuter[2] = 1;
+    }
+}
+
+@tese {
+#version 420
+
+    vec2 baryInterp2(vec2 v0, vec2 v1, vec2 v2) {
+        vec2 x = gl_TessCoord.x * v0;
+        vec2 y = gl_TessCoord.y * v1;
+        vec2 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    vec3 baryInterp3(vec3 v0, vec3 v1, vec3 v2) {
+        vec3 x = gl_TessCoord.x * v0;
+        vec3 y = gl_TessCoord.y * v1;
+        vec3 z = gl_TessCoord.z * v2;
+        return x + y + z;
+    }
+
+    layout(triangles) in;
+    in vec3 te_Position[];
+    in vec3 te_Normal[];
+    in vec2 te_TexCoord[];
+
+    out vec3 g_Position;
+    out vec3 g_Normal;
+    out vec2 g_TexCoord;
+
+    void main() {
+        g_Position = baryInterp3(te_Position[0], te_Position[1], te_Position[2]);
+        g_Normal = baryInterp3(te_Normal[0], te_Normal[1], te_Normal[2]);
+        g_TexCoord = baryInterp2(te_TexCoord[0], te_TexCoord[1], te_TexCoord[2]);
+    }
+}
+
+@geom {
+#version 150
+    bool inFrustum( vec3 pos ) {
+        bool x = -1 <= pos.x && pos.x <= 1;
+        bool y = -1 <= pos.y && pos.y <= 1;
+        bool z = -1 <= pos.z && pos.z <= 1;
+        return x && y && z;
+    }
+
+    layout(triangles) in;
+    layout(line_strip, max_vertices = 33) out;
+
+    in vec3 g_Position[];
+    in vec3 g_Normal[];
+    in vec2 g_TexCoord[];
+
+    out vec3 f_Normal;
+    out vec3 f_View;
+    out vec4 f_Color;
+    out vec3 f_TexCoord;
+    out vec3 f_hairColor;
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    uniform mat4 lightMatrix;
+    uniform sampler3D sampler;
+    uniform sampler2D tex;
+    uniform vec3 forceCenter;
+    uniform int numLayers;
+    uniform float hairLength;
+    uniform bool samplePerVertex;
+    uniform float shadeFactor;
+
+    void generateVertex(vec3 position, vec3 normal){
+        mat3 normalMatrix = mat3(modelViewMatrix);
+        mat4 M = projectionMatrix * modelViewMatrix;
+        vec4 light_Position;
+        float shade;
+
+        light_Position = lightMatrix * vec4(position,1);
+        light_Position /= light_Position.w;
+
+        f_TexCoord = (vec3(light_Position) + 1.0) / 2.0;
+        f_Color = texture(sampler, f_TexCoord);
+        shade = pow(0.99, shadeFactor * f_Color.r);
+        f_Color = vec4(vec3(shade), f_Color.a);
+        if( ! inFrustum ( light_Position.xyz ) ) {
+            f_Color = vec4(1,0,0,1);
+        }
+
+        f_Normal = normalMatrix * normal;
+        f_View = vec3(modelViewMatrix * vec4(position,1));
+        gl_Position = M * vec4(position, 1);
+        EmitVertex();
+    }
+
+    void main() {
+
+        vec4 material = texture(tex, g_TexCoord[2]);
+        mat3 normalMatrix = mat3(modelViewMatrix);
+        mat4 M = projectionMatrix * modelViewMatrix;
+        int segments = 10;
+        float segLength = 0.05;
+        vec3 gravityForce = vec3(0,-1,0);
+        f_hairColor = vec3(1);
+
+        //Match colors with dot product. Alpha = 0 because it doesnt matter
+        vec4 red = vec4(1,0,0,0);
+        vec4 blue = vec4(0,0,1,0);
+        vec4 green = vec4(0,1,0,0);
+        vec4 white = vec4(1,1,1,0);
+        vec4 black = vec4(0,0,0,0);
+
+        if (dot(material, red) > 0.5) {
+            segments = 5;
+            segLength = 0.03; //Head
+        }
+        else if (dot(material, blue) > 0.5) {
+            segLength = 0.06;
+            gravityForce = vec3(0,-0.4,0); //Chest, mane
+            f_hairColor =  vec3(0.8,0.8,0.2);
+        }
+        else if (dot(material, green) > 0.5 ) {
+            segments = 5;
+            segLength = 0.03; //Body
+            f_hairColor =  vec3(0.6,0.6,0.4);
+        }
+
+        if(dot(material, white) > 2) {
+            segLength = 0.1;
+            gravityForce = vec3(0,-0.2,0); // Fluffy tail
+        }
+        else if (dot(material, material) < 0.2) {
+          //Supposed to be for eyes,
+          //Errors in uv mapping prevent this.
+            segments = 0;
+            segLength = 0; // eyes no hair
+            f_hairColor =  vec3(0,0,0);
+        }
+
+
+        vec3 midPos = vec3(0);
+        vec3 midNormal =  vec3(0);
+        for(int i = 0; i < 3; ++i) {
+            midPos += g_Position[i];
+            midNormal += g_Normal[i];
+        }
+        midPos /= 3;
+        midNormal /= 3;
+
+        vec3 hairRoot = midPos;
+        vec3 segStartPos = hairRoot;
+        vec3 currHairDirr = normalize(midNormal);
+        vec3 force = vec3(0,0,0);
+        int layer;
+        for(int n = 0; n < segments; ++n)
+        {
+            generateVertex(segStartPos, currHairDirr);
+            generateVertex(segStartPos + segLength * currHairDirr, currHairDirr);
+            EndPrimitive();
+
+            segStartPos += segLength * currHairDirr;
+
+            force = normalize(segStartPos - forceCenter);
+            float weight = exp( - distance(segStartPos,forceCenter));
+            currHairDirr = normalize(currHairDirr + gravityForce + weight*force);
+
+        }
+    }
+
+}
+
+@frag {
+#version 420
+
+    in vec3 f_Normal;
+    in vec3 f_View;
+    in vec4 f_Color;
+    in vec3 f_TexCoord;
+    in vec3 f_hairColor;
+
+    out vec4 out_Color;
+
+    uniform vec3 light;
+    uniform int numLayers;
+    uniform float shadeFactor;
+    uniform sampler3D sampler;
+    uniform bool samplePerVertex;
+
+    void main(void) {
+
+        const float ambient = 0.1;
+        const float diffuseFactor = 0.5;
+        const float specularFactor = 0.5;
+        const float specular_exp = 5;
+        float diffuse, specular, visibility, shadeColor, shadeAlpha;
+
+        vec3 l = normalize(light);
+        vec3 n = normalize(f_Normal);
+        vec3 v = normalize(- f_View);
+
+        diffuse = length(cross(n, l)); // Hair shading
+        diffuse = diffuseFactor * max(diffuse, 0);
+
+        // Specular
+        vec3 half_Vector = normalize(l + v);
+        specular = max(sqrt(1 - pow(dot(half_Vector, n), 2)), 0); //Kajiya-Kay Model
+        specular = specularFactor * pow(specular, specular_exp);
+
+        if( samplePerVertex ) {
+            shadeColor = ambient + f_Color.r * (diffuse + specular);
+            shadeAlpha = 1;
+            //out_Color = vec4(f_Color.r * f_hairColor,1);//* ( ambient + diffuse + specular );
+        }
+        else {
+            vec4 tex_Color = texture(sampler, f_TexCoord);
+            visibility = pow(0.99, shadeFactor * tex_Color.r);
+            shadeColor = ambient + visibility * (diffuse + specular);
+            shadeAlpha = 1;//tex_Color.a;
+        }
+        out_Color = vec4(vec3(shadeColor)*f_hairColor, shadeAlpha);
+    }
+}

@@ -1,0 +1,45 @@
+@vert {
+#version 150
+
+    in  vec3 in_Position;
+
+    void main(void) {
+        gl_Position = vec4(in_Position, 1.0);
+    }
+}
+
+@geom {
+#version 150
+
+    layout(triangles) in;
+    layout(triangle_strip, max_vertices = 3) out;
+
+    out vec4 f_Color;
+
+    uniform mat4 transform;
+    uniform int numLayers;
+
+    void main() {
+
+        for(int i = 0; i < 3; ++i) {
+            gl_Position = transform * gl_in[i].gl_Position; 
+            gl_Position /= gl_Position.w;
+            gl_Layer = int(round(numLayers * (gl_Position.z + 1) / 2));
+            EmitVertex();
+        }
+
+        EndPrimitive();
+
+    }
+
+}
+
+@frag {
+#version 150
+
+    out vec4 out_Color;
+
+    void main(void) {
+        out_Color = vec4(1); 
+    }
+}

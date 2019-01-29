@@ -1,0 +1,68 @@
+@vert{
+	#version 150
+	in  vec3 inPosition;
+	in  vec3 inNormal;
+
+	out vec3 exNormal;
+
+	void main(void)
+	{
+		exNormal = inNormal;
+		gl_Position = vec4(inPosition, 1.0);
+	}
+}
+
+@geom{
+	#version 150
+
+	layout(triangles) in;
+	layout(line_strip, max_vertices = 33) out; //3 vertex + 3*amount of frags
+	in vec3 exNormal[3];
+
+	uniform mat4 projectionMatrix;
+	uniform mat4 modelViewMatrix;
+	uniform vec3 windForce;
+
+	out vec4 f_color;
+
+	void main(void)
+	{
+		f_color = vec4(normalize(exNormal[0]),1);
+		mat4 M = projectionMatrix * modelViewMatrix;
+		int segments = 10;
+		float segLength = 0.05;
+		vec3 gravityForce = vec3(0,-0.5,0);
+
+		for(int i = 0; i < 3; ++i)
+		{
+			vec4 segStartPos = gl_in[i].gl_Position;
+			vec3 currHairDirr = normalize(exNormal[i]);
+			for(int n = 1; n < segments; ++n)
+			{
+				gl_Position = M * segStartPos; //+ vec4(-0.1, 0.0, 0.0, 0.0);
+				EmitVertex();
+
+				gl_Position = M * (segStartPos + segLength*vec4(currHairDirr,0));
+				EmitVertex();
+				segStartPos += segLength*vec4(currHairDirr,0);
+				currHairDirr = normalize(currHairDirr + gravityForce + windForce);
+				EndPrimitive();
+			}
+		}
+	}
+}
+
+@frag{
+	#version 150
+
+	in vec4 f_color;
+
+	out vec4 outColor;
+	//in vec3 f_exNormal; // Phong
+	//in vec3 f_exSurface; // Phong (specular)
+
+	void main(void)
+	{
+		outColor = f_color;
+	}
+}

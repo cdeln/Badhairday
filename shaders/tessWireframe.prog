@@ -1,0 +1,107 @@
+
+@vert {
+#version 420
+
+    in  vec3 in_Position;
+    in  vec3 in_Normal;
+
+    out vec3 tc_Position;
+    out vec3 tc_Normal;
+
+    void main(void) {
+        tc_Position = in_Position;
+        tc_Normal = in_Normal;
+    }
+}
+
+@tesc {
+#version 420
+
+    layout(vertices = 3) out;
+    in vec3 tc_Position[]; // From vertex shader
+    in vec3 tc_Normal[]; // From vertex shader
+
+    out vec3 te_Position[]; // Output of TC
+    out vec3 te_Normal[]; // Output of TC
+
+    uniform int tessLevel;
+    uniform int outerTessLevel;
+
+    void main() {
+        te_Position[gl_InvocationID] = tc_Position[gl_InvocationID]; // Pass through the vertex at hand
+        te_Normal[gl_InvocationID] = tc_Normal[gl_InvocationID]; // Pass through the vertex at hand
+        gl_TessLevelInner[0] = tessLevel;
+        gl_TessLevelOuter[0] = max(outerTessLevel,1);
+        gl_TessLevelOuter[1] = max(outerTessLevel,1);
+        gl_TessLevelOuter[2] = max(outerTessLevel,1);
+    }
+}
+
+@tese{
+#version 420
+
+    layout(triangles) in;
+    in vec3 te_Position[];
+    in vec3 te_Normal[];
+
+    out vec3 g_Position;
+    out vec3 g_Normal;
+    out vec3 g_Color;
+
+    void main() {
+        float f = 1 - length(gl_TessCoord);
+        vec3 p0 = gl_TessCoord.x * te_Position[0];
+        vec3 p1 = gl_TessCoord.y * te_Position[1];
+        vec3 p2 = gl_TessCoord.z * te_Position[2];
+        vec3 n0 = gl_TessCoord.x * te_Normal[0];
+        vec3 n1 = gl_TessCoord.y * te_Normal[1];
+        vec3 n2 = gl_TessCoord.z * te_Normal[2];
+
+        vec3 n = normalize(n0 + n1 + n2);
+        g_Normal = n;
+        g_Color = gl_TessCoord;
+        vec3 p = p0 + p1 + p2;
+        g_Position = p;
+    }
+}
+
+@geom {
+#version 420
+
+    layout(triangles) in;
+    layout(line_strip, max_vertices = 4) out;
+
+    in vec3 g_Position[];
+    in vec3 g_Normal[];
+    in vec3 g_Color[];
+
+    uniform mat4 transform;
+    uniform float normalLength;
+
+    void main() {
+
+        vec3 midPos = vec3(0);
+        for(int i = 0; i < 3; ++i) {
+            midPos += g_Position[i];
+        }
+        midPos /= 3;
+
+        for(int i = 0; i < 3; ++i) {
+            gl_Position = transform * vec4(g_Position[i], 1);
+            EmitVertex();
+            gl_Position = transform * vec4(g_Position[(i+1)%3], 1);
+            EmitVertex();
+            EndPrimitive();
+        }
+    }
+}
+
+@frag {
+#version 420
+
+    out vec4 out_Color;
+
+    void main(void) {
+        out_Color = vec4(0,0,0,1);
+    }
+}

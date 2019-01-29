@@ -1,0 +1,42 @@
+@vert {
+    #version 150
+    
+    in vec3 in_Position;
+    
+    void main() {
+        gl_Position = vec4(in_Position,1);
+    }
+
+} 
+
+@geom {
+    #version 150
+
+    layout(triangles) in; 
+    layout(line_strip, max_vertices = 6) out;
+
+    uniform mat4 transform; 
+
+    void main() {
+        
+        for(int i = 0; i < 3; i++) {
+            int k = i + 1;
+            int j = int(mod( k, 3)); 
+            gl_Position = transform * gl_in[i].gl_Position;
+            EmitVertex();
+            gl_Position = transform * gl_in[j].gl_Position;
+            EmitVertex();
+            EndPrimitive();
+        }
+    }
+}
+
+@frag {
+    #version 150
+
+    out vec4 color;
+
+    void main() {
+        color = vec4(0,1,0,1);
+    }
+}
